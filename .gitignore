@@ -1,0 +1,15 @@
+# dependencies & build artifacts
+node_modules/
+dist/
+
+# release artifacts
+release/
+*.tgz
+SHA256SUMS.txt
+
+# serena per-project state
+.serena/
+
+# session scratch artifacts
+.tmp-*
+*.log

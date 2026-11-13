@@ -1,0 +1,7 @@
+# Installed bundle patch layer.
+# Applied by `dsh plugin --profile <profile> add <this directory or tgz>`,
+# or by the plugin manager's install_bundle with this package name.
+
+- insert:
+    - id: search-path-guard
+      name: dsh-search-path-guard

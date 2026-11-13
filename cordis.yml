@@ -1,0 +1,10 @@
+# Development composition — mount the guard without packaging it.
+#
+# `dsh` loads the built module straight from this directory, so a change is
+# live after `apply` re-runs (plugin restart) with no bundle install:
+#   dsh --profile <profile> --patch ./cordis.yml
+# Point the row at ./src/index.ts instead if your loader runs TypeScript
+# sources.
+
+- id: search-path-guard
+  name: ./dist/index.js

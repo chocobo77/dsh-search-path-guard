@@ -1,0 +1,39 @@
+{
+  "name": "dsh-search-path-guard",
+  "description": "One-line self-healing denial when grep/glob gets a nonexistent search path. / grep、glob 搜索路径不存在时给出一行式可自愈拒绝。",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./preflight": {
+      "types": "./dist/preflight.d.ts",
+      "default": "./dist/preflight.js"
+    },
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "cordis.yml",
+    "README.md",
+    "LICENSE",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs tsconfig.build.json",
+    "typecheck": "node scripts/build.mjs tsconfig.typecheck.json",
+    "test": "vitest run --config vitest.config.ts"
+  }
+}
