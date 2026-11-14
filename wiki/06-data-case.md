@@ -1,36 +1,30 @@
-# 06 · 数据案例：27/287 错误的治理闭环
+# 06 · 数据构成与治理思路
 
-## 1. 原始数据
+## 1. 问题规模
 
-2026-11-13 的审计（解压 `~/.dsh/sessions` 全量 74 个会话日志，提取 `tool/result` 的 `isError` 记录）：
+对 `~/.dsh/sessions` 全量会话日志（74 个会话）提取 `tool/result` 的 `isError` 记录，共 287 条。其中 **27 条**是 grep/glob 坏路径搜索：
 
-- 总计 **287 条**工具错误，跨 9 个工作区；
-- **27 条** grep/glob 坏路径（`rg: …: IO error for operation on …（系统找不到指定的路径）`）；
-- 其中 15 条指向 `deepseek-harness` 安装目录下按**官方 GitHub 仓库布局**臆测的路径（`packages/core/llm/lib`、`apps/cli/profiles`、`packages/api/session-controller/lib` 等——实际 pnpm 部署不存在这些目录）；
-- 其余为版本迭代后拿旧文件名搜新目录（`predlib.py`、`radar3d.html` 旧版）。
+- 15 条按**官方 GitHub 仓库布局**臆测 `deepseek-harness` 安装目录的 pnpm 布局（`packages/core/llm/lib`、`apps/cli/profiles`、`packages/api/session-controller/lib` 等——部署产物中不存在这些目录）；
+- 其余为版本迭代后拿旧文件名搜新目录（如旧版 `radar3d.html`）。
 
-stderr 里的中文系统消息在会话日志里以 GBK 乱码形态存在，既污染上下文又不可读——这决定了修复形态必须是**一行结构化文案**，而不是给 rg 换 locale。
+rg 失败的 stderr 是本地化系统消息（中文 Windows 上为 GBK 乱码形态），既污染上下文又不可读——这决定了修复形态必须是**一行结构化文案**，而不是给 rg 换 locale。
 
-## 2. 闭环时间线
+## 2. 治理思路
 
-| 时间 | 动作 |
-|---|---|
-| 2026-11-13 上午 | 全量审计 + 三类高频错误归因（本插件对应其中一类） |
-| 2026-11-13 10:30 | 内核补丁 `preflightSearchPath()` 落地（`tool-fs-search/src/search-core.ts`）+ 3 个新测试 + tsdown 重建；LOCAL-CHANGES.txt 记录 |
-| 2026-11-13 23:40 | Host 切换到含补丁的安装版 CLI |
-| 2026-11-13 23:41 起 | 新实例实测：3 次拦截（其中 1 次真实命中），1 次 `os error 5` 正确穿透 |
-| 2026-11-14 00:0x | 复盘发现"补丁不随 profile 走"，重做为插件形态（本项目）v1.0.0 安装 |
+两类防线，文案逐字一致、互为冗余：
 
-## 3. 复测口径
+1. **插件层**（本仓库）：`tools/pre-execute` deny，rg 进程都不创建；
+2. **内核层**：`tool-fs-search` 的 `preflightSearchPath()` spawn 前检查，覆盖未挂载插件的部署。
 
-治理是否有效，用同一个口径量：
+配套的**提示层**纪律（用户级技能 `edit-and-run-discipline`）：搜索路径只来自本会话见过的清单、对 `deepseek-harness` 目录先 glob 确认 pnpm 布局。
 
-- 工具：`session_error_audit`（dsh-agent-session-tools v1.4.0，同一次审计的产品化）；
-- 分类：`search-bad-path`（关键字 `IO error for operation`）；
-- 预期：内核 + 插件双闸后，新会话该类别只应出现 `does not exist — glob near` 形态的一行文案（预检拦截本身**不会**计入 isError——deny 是正常策略结果，不产生错误记录）。
+## 3. 效果度量口径
 
-> 这也是本插件选择 pre-execute deny 而非"返回错误结果"的一个附带好处：拦截不污染错误统计，`session_error_audit` 里 `search-bad-path` 归零即可判定治理成功。
+- 工具：`session_error_audit`（dsh-agent-session-tools 提供，同一份会话日志上的有界审计）；
+- 判据：`search-bad-path` 分类计数归零，且新出现的搜索错误均为 `does not exist — glob near` 形态（预检拦截本身**不产生** `isError` 记录——deny 是正常策略结果，因此不会污染错误统计）；
+- 反向保护：`rg os error 5`（存在但不可读）必须仍能到达 rg——守卫只断言"存在性"，不吞权限/占用类错误。
 
-## 4. 2026-11-14 快照结论
+## 4. 保留的边界
 
-重启后新实例的 6 条增量报错中：预检拦截 3（正常工作痕迹）、环境性 3（web_fetch redirect / 30s 超时 / rg os error 5）——三类历史复发模式（edit 三兄弟 / 超时 / 坏路径）**零复发**。坏路径类别从 27 条/周 → 0 条/周 的拐点在 2026-11-13 23:40（内核补丁上线）与本插件安装（双闸冗余）之间。
+- 预检不做路径合法性推断（是否目录、是否在沙箱内），那些是工具与沙箱层的职责；
+- 对"官方仓库布局 vs 安装布局"的根因，治本手段是提示层纪律与宿主布局文档，预检只是把失败代价从"乱码 + 多次重试"降到"一行可自愈文案"。

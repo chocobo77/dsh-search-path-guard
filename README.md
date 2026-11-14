@@ -4,7 +4,7 @@ grep/glob 搜索路径预检守卫。当模型给出的搜索路径不存在时�
 
 ## 依据（数据）
 
-74 个历史会话 287 条 `isError` 工具错误中 27 条是坏路径搜索，其中 15 条按官方 GitHub 仓库布局臆测 `deepseek-harness` 安装目录的 pnpm 布局。详细分析见会话「DSH 工具调用错误汇总」（2026-11-13）。
+74 个历史会话 287 条 `isError` 工具错误中 27 条是坏路径搜索，其中 15 条按官方 GitHub 仓库布局臆测 `deepseek-harness` 安装目录的 pnpm 布局。构成与治理思路见 [wiki/06-data-case.md](wiki/06-data-case.md)。
 
 ## 行为
 
@@ -17,7 +17,7 @@ grep/glob 搜索路径预检守卫。当模型给出的搜索路径不存在时�
 
 ## 与内核补丁的关系
 
-内核 `packages/fs/tool-fs-search/src/search-core.ts` 里有一份等价实现（`preflightSearchPath()`，见 LOCAL-CHANGES.txt 2026-11-13 条目）。本插件是**插件形态的同一防线**，两者可共存：插件先拒，内核逻辑兜底（例如 CLI 直连或未挂载本插件的 profile）。若只想留一处，内核补丁可随时摘除而不影响本插件。
+内核 `packages/fs/tool-fs-search/src/search-core.ts` 里有一份等价实现（`preflightSearchPath()`）。本插件是**插件形态的同一防线**，两者可共存：插件先拒，内核逻辑兜底（例如 CLI 直连或未挂载本插件的 profile）。若只想留一处，内核补丁可随时摘除而不影响本插件。
 
 ## 配置
 

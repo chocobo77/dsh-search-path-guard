@@ -18,7 +18,7 @@ npm run build / npm run typecheck     # 等价别名
 npx vitest run --config vitest.config.ts
 ```
 
-9 例（preflight 6 + 接线 3），全绿基线 2026-11-14。测试特点：纯函数用真实 tmp 目录做真实 `existsSync` 判定（不 mock fs）；接线测试用 fake context 捕获监听器并直接调用。
+9 例（preflight 6 + 接线 3）。测试特点：纯函数用真实 tmp 目录做真实 `existsSync` 判定（不 mock fs）；接线测试用 fake context 捕获监听器并直接调用。
 
 ## 3. 打包
 
@@ -54,5 +54,3 @@ dsh plugin --profile web add release/dsh-search-path-guard-1.0.0.tgz
 预期：正常搜索（放行路径未变）
 （可选）path 指向存在但无权限的文件：预期 rg 自己报 os error 5——守卫不应吞掉它
 ```
-
-2026-11-13/14 的实测记录：预检文案三次拦截成功（含一次真实坏路径 `.strata/data/native-instances/…json`），`os error 5` 场景正确穿透到 rg。

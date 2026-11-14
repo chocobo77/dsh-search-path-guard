@@ -63,11 +63,9 @@ grep search failed: path "X" does not exist — glob near "<已解析父目录�
 
 ## 5. 与内核补丁的关系
 
-宿主 checkout（`D:\Program files\deepseek-harness`，见其 `LOCAL-CHANGES.txt` 2026-11-13 条目）的 `packages/fs/tool-fs-search/src/search-core.ts` 里有一份等价实现 `preflightSearchPath()`——在 `runRipgrep` spawn 前检查 `--` 后的搜索根。两者：
+宿主 checkout 的 `packages/fs/tool-fs-search/src/search-core.ts` 里有一份等价实现 `preflightSearchPath()`——在 `runRipgrep` spawn 前检查 `--` 后的搜索根。两者：
 
 - 文案逐字一致；
 - 作用层不同：插件在**调用策略层**（pre-execute，连 rg 进程都不创建），内核在**执行层**（spawn 前）；
 - 可共存，互为冗余：插件先拒；未挂载本插件的 profile 或 CLI 直连场景由内核兜底。
-- 任选其一时：摘除内核补丁不影响本插件；`config.disabled: true` 可停用本插件。
-
-2026-11-14 部署状态：内核补丁已随安装版生效（实测确认，且正确放行了 `rg os error 5` 这类"存在但不可读"）；本插件 v1.0.0 已装入 profile `web`，对新会话生效。
+- 任选其一时：摘除内核补丁不影响本插件；`config.disabled: true` 可停用本插件。长期形态建议只保留插件层（随 profile 走、可配置停用、不依赖宿主发版）。

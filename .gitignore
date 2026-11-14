@@ -13,3 +13,7 @@ SHA256SUMS.txt
 # session scratch artifacts
 .tmp-*
 *.log
+
+# local-only ops files (sensitive: internal push pipeline)
+docs/GITHUB-PUSH-PIPELINE.md
+scripts/push-github-api.mjs
