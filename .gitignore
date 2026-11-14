@@ -17,3 +17,6 @@ SHA256SUMS.txt
 # local-only ops files (sensitive: internal push pipeline)
 docs/GITHUB-PUSH-PIPELINE.md
 scripts/push-github-api.mjs
+
+# scratch release notes
+release-body.md
