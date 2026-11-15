@@ -4,18 +4,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../src/index.ts'
 
-/** Minimal cordis-like context: captures the pre-execute listener. */
+/** Minimal cordis-like context: captures both registered listeners. */
 function makeContext(workdir: string) {
-  const state = { listener: undefined as ((exec: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined }
+  const state = {
+    pre: undefined as ((exec: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined,
+    result: undefined as ((exec: unknown, result: unknown) => unknown) | undefined,
+  }
   const ctx = {
-    on: (_event: string, handler: (exec: unknown, next: () => Promise<unknown>) => Promise<unknown>) => { state.listener = handler },
+    on: (event: string, handler: (a: unknown, b?: unknown) => unknown) => {
+      if (event === 'tools/pre-execute') state.pre = handler as never
+      if (event === 'tools/result') state.result = handler as never
+    },
     workingDirectory: { ensure: () => Promise.resolve(workdir) },
   }
   return { ctx: ctx as never, state }
 }
 
 function execOf(name: string, args: unknown) {
-  return { name, arguments: args, agent: undefined, signal: new AbortController().signal }
+  return { name, arguments: args, agent: { session: {} }, signal: new AbortController().signal }
 }
 
 describe('apply', () => {
@@ -27,30 +33,53 @@ describe('apply', () => {
     writeFileSync(target, 'const a = 1\nconst a = 1\n')
     const { ctx, state } = makeContext(workdir)
     apply(ctx)
-    expect(state.listener).toBeTypeOf('function')
+    expect(state.pre).toBeTypeOf('function')
     const next = () => Promise.resolve({ kind: 'allow' })
-    const badGrep = await state.listener?.(execOf('grep', { pattern: 'x', path: 'missing-dir' }), next) as { kind: string }
-    const staleEdit = await state.listener?.(execOf('edit', { file_path: target, old_string: 'const b = 2', new_string: 'c' }), next) as { kind: string }
-    const ambiguousEdit = await state.listener?.(execOf('edit', { file_path: target, old_string: 'const a = 1', new_string: 'c' }), next) as { kind: string }
-    const uniqueEdit = await state.listener?.(execOf('edit', { file_path: target, old_string: 'const a = 1\nconst a = 1', new_string: 'c' }), next) as { kind: string }
-    const readTool = await state.listener?.(execOf('read', { file_path: join(sub, 'nope.txt') }), next) as { kind: string }
-    const good = await state.listener?.(execOf('grep', { pattern: 'x', path: 'sub' }), next) as { kind: string }
-    const noPath = await state.listener?.(execOf('glob', { pattern: '*' }), next) as { kind: string }
-    const other = await state.listener?.(execOf('write', { file_path: 'x.txt', content: 'y' }), next) as { kind: string }
-    expect(badGrep.kind).toBe('deny')
-    expect(staleEdit.kind).toBe('deny')
-    expect(ambiguousEdit.kind).toBe('deny')
-    expect(uniqueEdit.kind).toBe('allow')
-    expect(readTool.kind).toBe('deny')
-    expect(good.kind).toBe('allow')
-    expect(noPath.kind).toBe('allow')
-    expect(other.kind).toBe('allow')
+    const run = (name: string, args: unknown) =>
+      state.pre?.(execOf(name, args), next) as Promise<{ kind: string }>
+    expect((await run('grep', { pattern: 'x', path: 'missing-dir' })).kind).toBe('deny')
+    expect((await run('edit', { file_path: target, old_string: 'const b = 2', new_string: 'c' })).kind).toBe('deny')
+    expect((await run('edit', { file_path: target, old_string: 'const a = 1', new_string: 'c' })).kind).toBe('deny')
+    expect((await run('edit', { file_path: target, old_string: 'const a = 1\nconst a = 1', new_string: 'c' })).kind).toBe('allow')
+    expect((await run('read', { file_path: join(sub, 'nope.txt') })).kind).toBe('deny')
+    expect((await run('read_image', { file_path: join(sub, 'icon.svg') })).kind).toBe('deny')
+    expect((await run('grep', { pattern: 'x', path: 'sub' })).kind).toBe('allow')
+    expect((await run('glob', { pattern: '*' })).kind).toBe('allow')
+    expect((await run('write', { file_path: 'x.txt', content: 'y' })).kind).toBe('allow')
+    rmSync(workdir, { recursive: true, force: true })
+  })
+
+  it('denies a grep after zeroResultBlock consecutive no-match searches on one path', async () => {
+    const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-loop-'))
+    const { ctx, state } = makeContext(workdir)
+    apply(ctx, { zeroResultBlock: 3 })
+    const next = () => Promise.resolve({ kind: 'allow' })
+    const path = join(workdir, 'app.log')
+    writeFileSync(path, '')
+    // 生产中同一 Agent 运行时对象穿透 pre 与 result 两个事件，这里同样共享
+    const agent = { session: {} }
+    const call = async () =>
+      (await state.pre?.({ name: 'grep', arguments: { pattern: 'speed', path }, agent, signal: new AbortController().signal }, next)) as { kind: string }
+    const observe = () =>
+      state.result?.({ name: 'grep', arguments: { pattern: 'speed', path }, agent, signal: new AbortController().signal }, { content: [{ type: 'text', text: 'No matches found' }] })
+    // 阈值 3：第 1~3 次调用放行（streak 0→3），第 4 次 deny
+    expect((await call()).kind).toBe('allow'); observe()
+    expect((await call()).kind).toBe('allow'); observe()
+    expect((await call()).kind).toBe('allow'); observe()
+    const denied = await call()
+    expect(denied.kind).toBe('deny')
+    // deny 不改变 streak：再次调用仍 deny，文案继续成立
+    expect((await call()).kind).toBe('deny')
+    // 有匹配结果后清零，恢复放行
+    state.result?.({ name: 'grep', arguments: { pattern: 'speed', path }, agent, signal: new AbortController().signal }, { content: [{ type: 'text', text: 'Found 1 match' }] })
+    expect((await call()).kind).toBe('allow')
     rmSync(workdir, { recursive: true, force: true })
   })
 
   it('respects the disabled config by registering nothing', () => {
     const { ctx, state } = makeContext(tmpdir())
     apply(ctx, { disabled: true })
-    expect(state.listener).toBeUndefined()
+    expect(state.pre).toBeUndefined()
+    expect(state.result).toBeUndefined()
   })
 })

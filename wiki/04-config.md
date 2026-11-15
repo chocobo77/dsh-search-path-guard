@@ -6,6 +6,7 @@
 |---|---|---|---|
 | `disabled` | boolean | `false` | `true` 时不注册监听器；bundle 与组合行保持安装 |
 | `maxEditBytes` | number | `2000000` | edit 内容预检的文件大小上限，超限跳过内容检查 |
+| `zeroResultBlock` | number | `5` | 同一目标路径连续零结果 grep 的拒绝阈值（循环失控守卫） |
 
 没有更多配置——守卫名单（grep/glob）与文案当前是编译期常量。理由：这是针对一类高频错误提炼的窄规则，配置面越宽越容易变成没人记得含义的开关；需要扩展时先扩 `guardedTools` 再谈配置。
 
