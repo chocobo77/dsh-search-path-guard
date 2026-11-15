@@ -88,6 +88,16 @@ describe('editDenial', () => {
     expect(editDenial({ path: join(existing, 'gone.ts'), workdir, oldString: 'x', replaceAll: false })).toBeUndefined()
   })
 
+  it('defers an empty old_string to the tool schema instead of a misleading not-found', () => {
+    expect(editDenial({ path: target, workdir, oldString: '', replaceAll: false })).toBeUndefined()
+  })
+
+  it('defers a binary/non-UTF-8 target instead of a misleading not-found', () => {
+    const bin = join(existing, 'blob.bin')
+    writeFileSync(bin, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0xff, 0xfe, 0x00, 0x01]))
+    expect(editDenial({ path: bin, workdir, oldString: 'const b = 2', replaceAll: false })).toBeUndefined()
+  })
+
   it('skips the content check above the byte budget', () => {
     const reason = editDenial({ path: target, workdir, oldString: 'const b = 2', replaceAll: false, maxBytes: 1 })
     expect(reason).toBeUndefined()

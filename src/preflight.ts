@@ -103,6 +103,9 @@ export function editDenial(params: {
   replaceAll: boolean
   maxBytes?: number
 }): string | undefined {
+  // 空白/空 old_string 是 schema 违规，工具自己有精确报错；本守卫的
+  // "not found / 并发修改" 文案对它是不成立的误导。
+  if (params.oldString.length === 0) return undefined
   const maxBytes = params.maxBytes ?? EDIT_PREFLIGHT_MAX_BYTES
   const resolvedPath = isAbsolute(params.path) ? params.path : resolve(params.workdir, params.path)
   let stats
@@ -117,6 +120,10 @@ export function editDenial(params: {
     content = readFileSync(resolvedPath, 'utf8')
   } catch {
     return undefined // unreadable (locked/permissions): the tool's own error is the right one
+  }
+  if (content.includes('\uFFFD')) {
+    // 解码出现替换符：文件是二进制或非 UTF-8 编码，"并发修改"提示会误导。
+    return undefined
   }
   const matches = countOccurrences(content, params.oldString)
   if (matches === 0) {

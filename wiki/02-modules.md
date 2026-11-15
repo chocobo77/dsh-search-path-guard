@@ -8,10 +8,10 @@ dsh-search-path-guard/
 ├── cordis.yml              开发组合（--patch 直挂 ./dist/index.js，免打包）
 ├── cordis.patch.yml        安装补丁（insert 一行到 profile 组合）
 ├── src/
-│   ├── index.ts            apply(ctx, config?)：注册 tools/pre-execute 监听器（62 行）
+│   ├── index.ts            apply(ctx, config?)：注册 tools/pre-execute 监听器
 │   └── preflight.ts        纯判定函数 searchPathDenial（45 行，无宿主 import）
 ├── tests/
-│   ├── preflight.test.ts   纯函数 6 例（tmp 目录上做真实 existsSync 判定）
+│   ├── preflight.test.ts   纯函数 13 例（tmp 目录上做真实 existsSync 判定）
 │   └── index.test.ts       接线 3 例（fake context 捕获监听器）
 ├── scripts/build.mjs       零安装构建垫片（从工作区共享骨架复制）
 ├── pack.ps1 / .cmd / .sh   一键打包（校验清单已改为本项目 dist 文件）
