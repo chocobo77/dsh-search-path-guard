@@ -34,14 +34,18 @@ export function apply(ctx: Context, config?: GuardConfig): void
 
 ```
 tools/pre-execute (exec)
-  ├─ exec.name ∉ {grep, glob}          → next()  放行
-  ├─ exec.arguments 非 object          → next()  放行
-  ├─ path 非字符串                     → next()  放行（schema 校验的职责）
-  ├─ path.trim() 为空                  → next()  放行（同上）
-  ├─ workdir.ensure() 抛错             → next()  放行（工具自己的失败要自己报）
-  ├─ workdir 本身不可 stat             → next()  放行（见 §4 防御性设计）
-  ├─ 解析后路径存在                    → next()  放行（§4：存在性是唯一主张）
-  └─ 解析后路径不存在                  → { kind:'deny', reason }
+  ├─ exec.name ∉ {grep, glob, read, read_image, edit}   → next()  放行
+  ├─ exec.arguments 非 object / 目标键非字符串           → next()  放行（schema 校验的职责）
+  ├─ workdir.ensure() 抛错                              → next()  放行（工具自己的失败要自己报）
+  ├─ workdir 本身不可 stat                              → next()  放行（见 §4 防御性设计）
+  ├─ grep/glob/read/read_image：解析后目标存在           → next()  放行（§4：存在性是唯一主张；
+  │                                                      read_image 额外做扩展名主张）
+  ├─ read_image：存在的非图片文件（如 .svg）              → deny   "…is text: use read"
+  ├─ grep/glob/read/read_image：解析后目标不存在          → deny   一行式 glob-near 文案
+  ├─ edit：文件 >2MB 或 stat/读取失败                    → next()  放行（内容主张不适用于此）
+  ├─ edit：old_string 在当前内容中不存在                 → deny   并发修改提示 + 重读要求
+  ├─ edit：old_string 多次匹配且未 replace_all           → deny   报告匹配次数
+  └─ 其余（唯一匹配 / replace_all=true）                 → next()  放行
 ```
 
 拒绝文案（与内核兜底实现逐字一致）：

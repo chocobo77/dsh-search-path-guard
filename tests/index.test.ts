@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../src/index.ts'
@@ -19,28 +19,32 @@ function execOf(name: string, args: unknown) {
 }
 
 describe('apply', () => {
-  it('registers a tools/pre-execute listener and denies a bad grep path', async () => {
+  it('denies a bad grep path and a stale edit, allows everything else through', async () => {
     const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-listener-'))
+    const sub = join(workdir, 'sub')
+    mkdirSync(sub)
+    const target = join(sub, 'engine.ts')
+    writeFileSync(target, 'const a = 1\nconst a = 1\n')
     const { ctx, state } = makeContext(workdir)
     apply(ctx)
     expect(state.listener).toBeTypeOf('function')
     const next = () => Promise.resolve({ kind: 'allow' })
-    const decision = await state.listener?.(execOf('grep', { pattern: 'x', path: 'missing-dir' }), next) as { kind: string }
-    expect(decision.kind).toBe('deny')
-    rmSync(workdir, { recursive: true, force: true })
-  })
-
-  it('falls through to next() for other tools and for existing paths', async () => {
-    const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-listener-'))
-    const { ctx, state } = makeContext(workdir)
-    apply(ctx)
-    const next = () => Promise.resolve({ kind: 'allow' })
-    const read = await state.listener?.(execOf('read', { file_path: 'missing.txt' }), next) as { kind: string }
-    const good = await state.listener?.(execOf('grep', { pattern: 'x', path: '.' }), next) as { kind: string }
+    const badGrep = await state.listener?.(execOf('grep', { pattern: 'x', path: 'missing-dir' }), next) as { kind: string }
+    const staleEdit = await state.listener?.(execOf('edit', { file_path: target, old_string: 'const b = 2', new_string: 'c' }), next) as { kind: string }
+    const ambiguousEdit = await state.listener?.(execOf('edit', { file_path: target, old_string: 'const a = 1', new_string: 'c' }), next) as { kind: string }
+    const uniqueEdit = await state.listener?.(execOf('edit', { file_path: target, old_string: 'const a = 1\nconst a = 1', new_string: 'c' }), next) as { kind: string }
+    const readTool = await state.listener?.(execOf('read', { file_path: join(sub, 'nope.txt') }), next) as { kind: string }
+    const good = await state.listener?.(execOf('grep', { pattern: 'x', path: 'sub' }), next) as { kind: string }
     const noPath = await state.listener?.(execOf('glob', { pattern: '*' }), next) as { kind: string }
-    expect(read.kind).toBe('allow')
+    const other = await state.listener?.(execOf('write', { file_path: 'x.txt', content: 'y' }), next) as { kind: string }
+    expect(badGrep.kind).toBe('deny')
+    expect(staleEdit.kind).toBe('deny')
+    expect(ambiguousEdit.kind).toBe('deny')
+    expect(uniqueEdit.kind).toBe('allow')
+    expect(readTool.kind).toBe('deny')
     expect(good.kind).toBe('allow')
     expect(noPath.kind).toBe('allow')
+    expect(other.kind).toBe('allow')
     rmSync(workdir, { recursive: true, force: true })
   })
 

@@ -8,12 +8,13 @@ grep/glob 搜索路径预检守卫。当模型给出的搜索路径不存在时�
 
 ## 行为
 
-- 监听 `tools/pre-execute`（monotonic listener，拒绝不可被监听器顺序翻盘），只检查 `grep` / `glob` 的 `path` 参数：
-  - 路径存在 → 放行（存在但不可读/被锁定等交给 rg 自己报，预检只做存在性这一件事）；
-  - 路径不存在 → `{ kind: 'deny' }`，文案与内核补丁完全一致：
-    `grep search failed: path "X" does not exist — glob near "<父目录>" to list existing candidates, then retry with an existing path`
-- 无 `path` 参数、路径非字符串、workdir 本身不可 stat、workdir 解析失败：一律放行，交给工具自身处理。
-- 其他工具不经过本守卫。
+- 监听 `tools/pre-execute`（monotonic listener，拒绝不可被监听器顺序翻盘），按工具检查目标主张：
+  - **grep / glob**：`path` 不存在 → deny，一行式 glob-near 文案；
+  - **read / read_image**：`file_path` 不存在 → deny，同一套定位建议（覆盖"上游步骤本应生成该文件但实际失败"的场景）；read_image 对存在的非图片文件（如 `.svg`）直接给出"use read"提示；
+  - **edit**：目标文件 ≤2MB 时读取当前内容，`old_string` 不存在 → deny 并提示并发修改可能（要求重新 read 后再构造）；多次匹配 → deny 并报告匹配次数；
+  - 路径存在 → 放行（存在但不可读/被锁定等交给工具自己报，预检只做存在性与内容主张这两件事）；
+  - 无路径参数、路径非字符串、workdir 不可 stat、workdir 解析失败：一律放行。
+  - 其他工具不经过本守卫。
 
 ## 与内核补丁的关系
 
@@ -24,6 +25,7 @@ grep/glob 搜索路径预检守卫。当模型给出的搜索路径不存在时�
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `disabled` | `false` | 设为 `true` 即卸载守卫逻辑，bundle 保持安装。 |
+| `maxEditBytes` | `2000000` | edit 内容预检的文件大小上限，超限跳过检查（避免大文件拖慢每次调用）。 |
 
 ## 开发
 
@@ -31,7 +33,7 @@ grep/glob 搜索路径预检守卫。当模型给出的搜索路径不存在时�
 node scripts/build.mjs            # 构建 dist（自动垫 node_modules 垫片）
 npx vitest run --config vitest.config.ts
 ./pack.ps1                        # 打包 tgz 到 release/（或 pack.cmd / pack.sh）
-dsh plugin --profile <profile> add release/dsh-search-path-guard-1.0.0.tgz
+dsh plugin --profile <profile> add release/dsh-search-path-guard-<版本>.tgz
 ```
 
 目录结构对齐 `dsh-agent-session-tools` 与 `adaptive-effort-scheduler`：`cordis.yml` 开发组合、`cordis.patch.yml` 安装补丁、`scripts/build.mjs` 免安装构建、`pack.*` 一键打包、`vitest.config.ts` 测试。
