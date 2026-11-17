@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ZeroResultTracker, zeroResultDenial } from '../src/repeat-guard.ts'
+import { ZeroResultTracker, zeroResultDenial, DenialEscalation, escalatedReason } from '../src/repeat-guard.ts'
 
 const agent = { session: {} } // any stable object identity
 const other = { session: {} }
@@ -52,5 +52,43 @@ describe('zeroResultDenial', () => {
     expect(m).toContain('No matches found')
     expect(m).toContain('Read the target range directly')
     expect(m.split('\n')).toHaveLength(1)
+  })
+})
+
+describe('DenialEscalation', () => {
+  it('counts consecutive denials per agent and resets on an allowed call', () => {
+    const e = new DenialEscalation()
+    expect(e.note(agent)).toBe(1)
+    expect(e.note(agent)).toBe(2)
+    e.clear(agent)
+    expect(e.note(agent)).toBe(1)
+  })
+
+  it('is per-agent isolated', () => {
+    const e = new DenialEscalation()
+    e.note(agent); e.note(agent)
+    expect(e.note(other)).toBe(1)
+  })
+
+  it('ignores an agentless denial', () => {
+    const e = new DenialEscalation()
+    expect(e.note(undefined)).toBe(1)
+    expect(() => e.clear(undefined)).not.toThrow()
+  })
+})
+
+describe('escalatedReason', () => {
+  it('leaves the reason untouched below the threshold', () => {
+    expect(escalatedReason('base', 1)).toBe('base')
+    expect(escalatedReason('base', 2)).toBe('base')
+  })
+
+  it('appends non-yielding and text-form-call warnings at the threshold', () => {
+    const m = escalatedReason('base', 3)
+    expect(m.startsWith('base')).toBe(true)
+    expect(m).toContain('denial #3 in a row')
+    expect(m).toContain('does not yield to retries')
+    expect(m).toContain('do NOT write the call as text markup')
+    expect(m).toContain('never executed')
   })
 })

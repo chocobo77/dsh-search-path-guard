@@ -40,6 +40,10 @@ export function editDenial(params: {
 
 目标 ≤`maxBytes` 时读当前内容统计 `old_string` 非重叠匹配：**0 次** → deny（并发修改提示 + 要求 `read` offset/limit 重读后重构）；**>1 次且未 replace_all** → deny（报告匹配次数）；stat/读失败、超限、恰好 1 次 → `undefined`。
 
+### `DenialEscalation` / `escalatedReason(reason, count)`
+
+连续拒绝计数（`note(agent)` 递增、`clear(agent)` 归零，`THRESHOLD = 3`）；`escalatedReason` 在达到阈值时把"守卫不会向重试让步 + 文本形态调用不会执行"追加到拒绝文案——吸收 text-form tool call 诊断教训，防止模型在限流/上下文压力下把调用写进正文。
+
 ### `countOccurrences(haystack, needle)` / `EDIT_PREFLIGHT_MAX_BYTES`
 
 非重叠计数助手（空 needle 返回 0）；edit 预检字节预算常量。
