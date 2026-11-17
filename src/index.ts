@@ -16,7 +16,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import { editDenial, pathKeyFor, searchPathDenial } from './preflight.ts'
-import { ZeroResultTracker, zeroResultDenial } from './repeat-guard.ts'
+import { DenialEscalation, ZeroResultTracker, escalatedReason, zeroResultDenial } from './repeat-guard.ts'
 
 export const name = 'search-path-guard'
 
@@ -61,6 +61,21 @@ export function apply(ctx: Context, config?: GuardConfig): void {
   const workingDirectory = (ctx as unknown as { workingDirectory: WorkingDirectoryLike }).workingDirectory
   const zeroResultBlock = config?.zeroResultBlock ?? 5
   const tracker = new ZeroResultTracker()
+  const escalation = new DenialEscalation()
+
+  /** Deny with the escalation wording; any allowed call later resets the streak. */
+  const deny = (exec: { readonly agent?: unknown }, reason: string): PreToolDecision =>
+    ({ kind: 'deny', reason: escalatedReason(reason, escalation.note(exec.agent)) })
+
+  /**
+   * Every allowed dispatch — guarded or not — is progress the model can see,
+   * so it resets the consecutive-denial streak. Only an unbroken run of
+   * denials escalates.
+   */
+  const allow = (exec: { readonly agent?: unknown }, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> => {
+    escalation.clear(exec.agent)
+    return next()
+  }
 
   ctx.on('tools/result', (exec, result) => {
     if (exec.name !== 'grep') return
@@ -73,21 +88,21 @@ export function apply(ctx: Context, config?: GuardConfig): void {
 
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     const pathKey = pathKeyFor(exec.name)
-    if (pathKey === undefined) return next()
+    if (pathKey === undefined) return allow(exec, next)
     const args = exec.arguments
-    if (typeof args !== 'object' || args === null) return next()
+    if (typeof args !== 'object' || args === null) return allow(exec, next)
     const rawPath = (args as Record<string, unknown>)[pathKey]
-    if (typeof rawPath !== 'string') return next()
+    if (typeof rawPath !== 'string') return allow(exec, next)
     let workdir: string
     try {
       workdir = await workingDirectory.ensure(exec.agent, exec.signal)
     } catch {
       // An unresolvable workdir is the tool's own failure to report; defer.
-      return next()
+      return allow(exec, next)
     }
     if (exec.name === 'grep') {
       const streak = tracker.streakFor(exec.agent, rawPath)
-      if (streak >= zeroResultBlock) return { kind: 'deny', reason: zeroResultDenial(rawPath, streak) }
+      if (streak >= zeroResultBlock) return deny(exec, zeroResultDenial(rawPath, streak))
     }
     const editArgs = args as { old_string?: unknown; replace_all?: unknown }
     const reason = exec.name === 'edit'
@@ -101,7 +116,7 @@ export function apply(ctx: Context, config?: GuardConfig): void {
           })
         : undefined) // old_string validation belongs to the tool's schema
       : searchPathDenial({ name: exec.name, path: rawPath, workdir })
-    if (reason === undefined) return next()
-    return { kind: 'deny', reason }
+    if (reason === undefined) return allow(exec, next)
+    return deny(exec, reason)
   })
 }

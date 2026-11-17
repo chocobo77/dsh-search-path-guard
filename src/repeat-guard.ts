@@ -77,3 +77,48 @@ export function zeroResultDenial(path: string, streak: number): string {
     + ' Read the target range directly to see what the file actually contains, switch to a different file or source,'
     + ' or report the negative finding to the user instead of searching'
 }
+
+/**
+ * Consecutive-denial counter per agent. A guard that only ever says "no" can
+ * be read as a transient glitch worth retrying; measured sessions show a
+ * model under pressure (429 storms, context compaction) retrying the same
+ * blocked shape instead of changing approach, and eventually degrading into
+ * writing tool calls as prose markup that never executes. Escalating the
+ * denial wording at the repeat count is how the guard says "this is not
+ * transient — change the approach or stop".
+ */
+export class DenialEscalation {
+  /** Consecutive denials before the wording escalates. */
+  static readonly THRESHOLD = 3
+  readonly #agents = new WeakMap<object, number>()
+
+  /** Count one denial for this agent and return the running total. */
+  note(agent: unknown): number {
+    if (typeof agent !== 'object' || agent === null) return 1
+    const next = (this.#agents.get(agent) ?? 0) + 1
+    this.#agents.set(agent, next)
+    return next
+  }
+
+  /** Any allowed call means the model is making progress: reset the streak. */
+  clear(agent: unknown): void {
+    if (typeof agent !== 'object' || agent === null) return
+    this.#agents.delete(agent)
+  }
+}
+
+/**
+ * Append the escalation guidance once consecutive denials cross the threshold.
+ * Past the threshold the model is told, verbatim, that text-form tool calls
+ * never execute — the measured degradation when a model cannot get a call
+ * through the tool channel.
+ */
+export function escalatedReason(reason: string, denialCount: number): string {
+  if (denialCount < DenialEscalation.THRESHOLD) return reason
+  return `${reason}`
+    + ` | escalation: this is denial #${denialCount} in a row for this session`
+    + ' — the guard does not yield to retries, so repeating the blocked shape will keep failing;'
+    + ' change the target or the approach, or stop and tell the user what is blocking you.'
+    + ' If tool calls are being lost at the tool layer (rate limits, context pressure), do NOT write the call as text markup'
+    + ' — text-form calls are never executed; report the blockage to the user instead'
+}

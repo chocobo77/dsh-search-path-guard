@@ -83,3 +83,28 @@ describe('apply', () => {
     expect(state.result).toBeUndefined()
   })
 })
+
+describe('apply — denial escalation', () => {
+  it('escalates the third consecutive denial and resets after an allowed call', async () => {
+    const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-escalate-'))
+    const { ctx, state } = makeContext(workdir)
+    apply(ctx)
+    const next = () => Promise.resolve({ kind: 'allow' })
+    const agent = { session: {} }
+    const bad = () => state.pre?.({ name: 'grep', arguments: { pattern: 'x', path: 'missing' }, agent, signal: new AbortController().signal }, next) as Promise<{ kind: string; reason?: string }>
+    const good = () => state.pre?.({ name: 'grep', arguments: { pattern: 'x' }, agent, signal: new AbortController().signal }, next) as Promise<{ kind: string; reason?: string }>
+    const d1 = await bad()
+    const d2 = await bad()
+    const d3 = await bad()
+    expect(d1.kind).toBe('deny')
+    expect(d1.reason).not.toContain('escalation')
+    expect(d2.reason).not.toContain('escalation')
+    expect(d3.reason).toContain('escalation')
+    expect(d3.reason).toContain('denial #3')
+    expect(d3.reason).toContain('text-form calls are never executed')
+    // 一次放行后计数清零：下一次 deny 不再升级
+    expect((await good()).kind).toBe('allow')
+    expect((await bad()).reason).not.toContain('escalation')
+    rmSync(workdir, { recursive: true, force: true })
+  })
+})
