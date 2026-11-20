@@ -26,7 +26,7 @@ export interface GuardConfig {
   disabled?: boolean
   /** Skip the edit content check above this file size (default 2 MB). */
   maxEditBytes?: number
-  /** Consecutive zero-result greps on one target before the loop guard denies. Default 5. */
+  /** Consecutive zero-result greps on one target before the loop guard denies. Default 5; values below 1 are clamped to 1. */
   zeroResultBlock?: number
 }
 
@@ -59,7 +59,7 @@ export const inject = ['workingDirectory']
 export function apply(ctx: Context, config?: GuardConfig): void {
   if (config?.disabled === true) return
   const workingDirectory = (ctx as unknown as { workingDirectory: WorkingDirectoryLike }).workingDirectory
-  const zeroResultBlock = config?.zeroResultBlock ?? 5
+  const zeroResultBlock = Math.max(1, config?.zeroResultBlock ?? 5)
   const tracker = new ZeroResultTracker()
   const escalation = new DenialEscalation()
 
@@ -83,7 +83,14 @@ export function apply(ctx: Context, config?: GuardConfig): void {
     if (typeof args !== 'object' || args === null) return
     const path = (args as Record<string, unknown>).path
     if (typeof path !== 'string') return
-    tracker.observe(exec.agent, path, resultText(result))
+    const text = resultText(result)
+    // A denied call still reaches this event: the pipeline emits an
+    // `Error: …` result for pre-execute denials, and the loop-guard denial
+    // quotes the zero-result marker. That denial is not a search outcome —
+    // observing it would inflate the very streak the message reports — so it
+    // is ignored here, neither extending nor clearing the streak.
+    if (text.startsWith('Error: loop-guard')) return
+    tracker.observe(exec.agent, path, text)
   })
 
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {

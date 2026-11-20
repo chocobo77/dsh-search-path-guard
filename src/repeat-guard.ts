@@ -9,16 +9,25 @@
  * @module dsh-search-path-guard/repeat-guard
  */
 
+/**
+ * The exact zero-result wording emitted by `@deepseek-ai/dsh-tool-fs-search`
+ * (its src/grep.ts). This is a cross-package text contract: if the tool ever
+ * rewords its empty output, streaks silently stop growing and this guard
+ * disables itself — keep the constant in sync with the tool.
+ */
+const ZERO_RESULT_MARKER = 'No matches found'
+
 /** Bounded per-agent streak state. */
 export class ZeroResultTracker {
   readonly #limit: number
-  readonly #agents = new WeakMap<object, Map<string, { streak: number; lastHead: string }>>()
+  readonly #agents = new WeakMap<object, Map<string, number>>()
 
   constructor(limit = 64) {
     this.#limit = limit
   }
 
-  #mapFor(agent: unknown): Map<string, { streak: number; lastHead: string }> {
+  /** Pure lookup/creation; reads never evict. */
+  #mapFor(agent: unknown): Map<string, number> {
     if (typeof agent !== 'object' || agent === null) {
       // No agent (direct tool call): track nothing, deny nothing.
       return new Map()
@@ -28,40 +37,40 @@ export class ZeroResultTracker {
       map = new Map()
       this.#agents.set(agent, map)
     }
-    if (map.size >= this.#limit) {
-      // Bound per-agent key growth: evict the least-recently-touched target
-      // (Map preserves insertion order, so the first key is the oldest).
-      const oldest = map.keys().next().value
-      if (oldest !== undefined) map.delete(oldest)
-    }
     return map
   }
 
   /** How many consecutive zero-result greps this agent has on this path. */
   streakFor(agent: unknown, path: string): number {
-    return this.#mapFor(agent).get(path)?.streak ?? 0
-  }
-
-  /** The tail of the last zero-result output, quoted in the denial message. */
-  lastHeadFor(agent: unknown, path: string): string {
-    return this.#mapFor(agent).get(path)?.lastHead ?? ''
+    return this.#mapFor(agent).get(path) ?? 0
   }
 
   /**
    * Observe one finished grep outcome. A zero-result output extends the
    * streak; any other outcome (matches, error, cancellation) clears it —
-   * the file changed, or the attempt was not a comparable search.
+   * the file changed, or the attempt was not a comparable search. A guard
+   * denial also re-emits through `tools/result` and is filtered out by the
+   * plugin's observer first: it is not a search outcome, so it must neither
+   * extend nor clear the streak.
    */
   observe(agent: unknown, path: string, resultText: string): void {
     const map = this.#mapFor(agent)
-    if (!resultText.includes('No matches found')) {
+    if (!resultText.includes(ZERO_RESULT_MARKER)) {
       map.delete(path)
       return
     }
-    const entry = map.get(path) ?? { streak: 0, lastHead: '' }
-    entry.streak += 1
-    entry.lastHead = resultText.slice(0, 80)
-    map.set(path, entry)
+    const prior = map.get(path)
+    // delete+set re-keys the entry at the tail of Map's insertion order, so a
+    // target under active search stays out of eviction reach (recency refresh).
+    map.delete(path)
+    if (prior === undefined && map.size >= this.#limit) {
+      // Bound per-agent key growth: evict only when inserting a NEW key
+      // (an update above just refreshed recency); Map preserves insertion
+      // order, so the first key is the least-recently-touched.
+      const oldest = map.keys().next().value
+      if (oldest !== undefined) map.delete(oldest)
+    }
+    map.set(path, (prior ?? 0) + 1)
   }
 }
 
@@ -72,7 +81,7 @@ export class ZeroResultTracker {
  * this guard exists to stop.
  */
 export function zeroResultDenial(path: string, streak: number): string {
-  return `loop-guard: your last ${streak} greps on "${path}" all returned "No matches found"`
+  return `loop-guard: your last ${streak} greps on "${path}" all returned "${ZERO_RESULT_MARKER}"`
     + ' — varying the pattern again will stay blocked, because repeating a search that cannot match yields nothing new.'
     + ' Read the target range directly to see what the file actually contains, switch to a different file or source,'
     + ' or report the negative finding to the user instead of searching'

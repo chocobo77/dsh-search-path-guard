@@ -42,6 +42,25 @@ describe('ZeroResultTracker', () => {
     for (let i = 0; i < 10; i++) if (t.streakFor(agent, `f${i}.log`) > 0) live += 1
     expect(live).toBeLessThanOrEqual(4)
   })
+
+  it('refreshes recency on update: a target under active search survives eviction', () => {
+    const t = new ZeroResultTracker(4)
+    for (const p of ['a', 'b', 'c', 'd']) t.observe(agent, p, ZERO)
+    t.observe(agent, 'a', ZERO) // streak 2，并移到插入序尾部
+    t.observe(agent, 'e', ZERO) // 容量已满：淘汰最旧的 'b'，而不是活跃的 'a'
+    expect(t.streakFor(agent, 'a')).toBe(2)
+    expect(t.streakFor(agent, 'b')).toBe(0)
+    expect(t.streakFor(agent, 'c')).toBe(1)
+    expect(t.streakFor(agent, 'e')).toBe(1)
+  })
+
+  it('never evicts on a read: checking a streak must not destroy it', () => {
+    const t = new ZeroResultTracker(4)
+    for (const p of ['a', 'b', 'c', 'd']) t.observe(agent, p, ZERO)
+    // 'a' 是插入序最旧的键；读取它自身多次，条目必须原样保留
+    for (let i = 0; i < 5; i++) expect(t.streakFor(agent, 'a')).toBe(1)
+    expect(t.streakFor(agent, 'd')).toBe(1)
+  })
 })
 
 describe('zeroResultDenial', () => {
