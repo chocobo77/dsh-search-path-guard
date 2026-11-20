@@ -54,6 +54,17 @@ describe('ZeroResultTracker', () => {
     expect(t.streakFor(agent, 'e')).toBe(1)
   })
 
+  it('clear drops one target streak (edit/write unlock)', () => {
+    const t = new ZeroResultTracker()
+    t.observe(agent, 'log.txt', ZERO)
+    t.observe(agent, 'log.txt', ZERO)
+    t.observe(agent, 'other.log', ZERO)
+    t.clear(agent, 'log.txt')
+    expect(t.streakFor(agent, 'log.txt')).toBe(0)
+    expect(t.streakFor(agent, 'other.log')).toBe(1) // other targets untouched
+    expect(() => t.clear(undefined, 'log.txt')).not.toThrow()
+  })
+
   it('never evicts on a read: checking a streak must not destroy it', () => {
     const t = new ZeroResultTracker(4)
     for (const p of ['a', 'b', 'c', 'd']) t.observe(agent, p, ZERO)

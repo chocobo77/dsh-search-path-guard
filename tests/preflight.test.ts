@@ -103,6 +103,30 @@ describe('editDenial', () => {
     expect(reason).toBeUndefined()
     expect(EDIT_PREFLIGHT_MAX_BYTES).toBeGreaterThan(1000)
   })
+
+  it('matches a CRLF file with an LF-shaped old_string, exactly as the kernel fold does', () => {
+    const crlf = join(existing, 'crlf.ts')
+    writeFileSync(crlf, 'const a = 1\r\nconst b = 2\r\n')
+    // The kernel (fsio normalizeLineEndings) folds \r\n in BOTH the content
+    // and old_string before matching; the guard must count the same match, or
+    // it denies an edit the kernel would apply and feeds the denial spiral.
+    expect(editDenial({ path: crlf, workdir, oldString: 'const b = 2', replaceAll: false })).toBeUndefined()
+    expect(editDenial({ path: crlf, workdir, oldString: 'const a = 1\nconst b = 2', replaceAll: false })).toBeUndefined()
+    // and the AMBIGUOUS count is taken on folded text too
+    expect(editDenial({ path: crlf, workdir, oldString: 'const', replaceAll: false })).toContain('matches 2 times')
+  })
+
+  it('matches an LF file against a CRLF-shaped old_string, and lone CR stays literal', () => {
+    const lf = join(existing, 'lf.ts')
+    writeFileSync(lf, 'const a = 1\n')
+    expect(editDenial({ path: lf, workdir, oldString: 'const a = 1\r\n', replaceAll: false })).toBeUndefined()
+    expect(editDenial({ path: lf, workdir, oldString: 'const q = 1\r\n', replaceAll: false })).toContain('was not found')
+    // fsio folds only \r\n — a lone \r must NOT fold on either side
+    const loneCr = join(existing, 'cr.ts')
+    writeFileSync(loneCr, 'const a = 1\rconst b = 2\n')
+    expect(editDenial({ path: loneCr, workdir, oldString: 'const a = 1\nconst b = 2', replaceAll: false })).toContain('was not found')
+    expect(editDenial({ path: loneCr, workdir, oldString: 'const a = 1\rconst b = 2', replaceAll: false })).toBeUndefined()
+  })
 })
 
 describe('countOccurrences', () => {

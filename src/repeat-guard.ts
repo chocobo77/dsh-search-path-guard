@@ -72,6 +72,20 @@ export class ZeroResultTracker {
     }
     map.set(path, (prior ?? 0) + 1)
   }
+
+  /**
+   * Drop one target's streak on EXTERNAL evidence that the dead end may no
+   * longer be dead: an `edit`/`write` landed on the same path, so the content
+   * the greps kept missing could now exist. Without this, a locked streak can
+   * only unlock via LRU eviction or agent teardown — a file the model just
+   * edited would stay blocked, which is the guard over-reaching.
+   * (Path-keyed, so editing a FILE inside a searched DIRECTORY does not
+   * count; that stays on the tool's own "nonzero result clears the streak"
+   * path. Deliberate, not an oversight.)
+   */
+  clear(agent: unknown, path: string): void {
+    this.#mapFor(agent).delete(path)
+  }
 }
 
 /**

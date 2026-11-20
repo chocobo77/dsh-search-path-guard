@@ -125,7 +125,14 @@ export function editDenial(params: {
     // 解码出现替换符：文件是二进制或非 UTF-8 编码，"并发修改"提示会误导。
     return undefined
   }
-  const matches = countOccurrences(content, params.oldString)
+  // Match the kernel edit tool's own semantics: fsio's `normalizeLineEndings`
+  // folds `\r\n` to `\n` for the file content AND for `old_string` before the
+  // literal match. Without the same fold here, a CRLF file plus an LF-shaped
+  // old_string — what a model most often reconstructs from `read` output —
+  // makes this guard deny an edit the kernel would apply, and three in a row
+  // then escalates: the guard would manufacture the denial spiral it exists
+  // to prevent. Lone `\r` is left alone, exactly as fsio does.
+  const matches = countOccurrences(normalizeLineEndings(content), normalizeLineEndings(params.oldString))
   if (matches === 0) {
     return `edit blocked: old_string was not found in "${params.path}"`
       + ' — the file has likely changed since your last read (concurrent edits are common in this workspace):'
@@ -136,6 +143,15 @@ export function editDenial(params: {
       + ' — extend old_string with surrounding lines to make it unique, or pass replace_all: true only if every occurrence should change'
   }
   return undefined
+}
+
+/**
+ * `\r\n` → `\n`, mirroring the kernel edit path (fsio `normalizeLineEndings`)
+ * exactly: both the file content and the model-supplied `old_string` see the
+ * same fold, so the guard's match count equals what the tool will compute.
+ */
+function normalizeLineEndings(content: string): string {
+  return content.replaceAll('\r\n', '\n')
 }
 
 /** Count non-overlapping occurrences of `needle` in `haystack`. */

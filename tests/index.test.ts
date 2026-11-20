@@ -115,3 +115,98 @@ describe('apply — denial escalation', () => {
     rmSync(workdir, { recursive: true, force: true })
   })
 })
+
+describe('apply — loop-guard streak hygiene', () => {
+  it('counts ONE streak across path spellings, and quotes this call\'s spelling', async () => {
+    const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-streakkey-'))
+    const { ctx, state } = makeContext(workdir)
+    apply(ctx, { zeroResultBlock: 4 })
+    const next = () => Promise.resolve({ kind: 'allow' })
+    const agent = { session: {} }
+    const abs = join(workdir, 'app.log')
+    writeFileSync(abs, '')
+    // Raw-string streak keys let each spelling carry its own counter: varying
+    // the spelling dodged the guard and diluted a real streak.
+    const spellings = ['app.log', './app.log', abs, abs.replace(/\\/gu, '/')]
+    for (const path of spellings) {
+      const exec = { name: 'grep', arguments: { pattern: 'x', path }, agent, signal: new AbortController().signal }
+      expect(((await state.pre?.(exec, next)) as { kind: string }).kind).toBe('allow')
+      await state.result?.(exec, { content: [{ type: 'text', text: 'No matches found' }] })
+    }
+    const denied = (await state.pre?.(
+      { name: 'grep', arguments: { pattern: 'x', path: './app.log' }, agent, signal: new AbortController().signal },
+      next,
+    )) as { kind: string; reason?: string }
+    expect(denied.kind).toBe('deny')
+    expect(denied.reason).toContain('last 4 greps')
+    expect(denied.reason).toContain('"./app.log"')
+    if (process.platform === 'win32') {
+      // The filesystem ignores case, so the key must too: same file, same streak.
+      const upper = (await state.pre?.(
+        { name: 'grep', arguments: { pattern: 'x', path: abs.toUpperCase() }, agent, signal: new AbortController().signal },
+        next,
+      )) as { kind: string }
+      expect(upper.kind).toBe('deny')
+    }
+    rmSync(workdir, { recursive: true, force: true })
+  })
+
+  it('unlocks a locked target when an edit/write lands on it; a failed write leaves it locked', async () => {
+    const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-unlock-'))
+    const { ctx, state } = makeContext(workdir)
+    apply(ctx, { zeroResultBlock: 2 })
+    const next = () => Promise.resolve({ kind: 'allow' })
+    const agent = { session: {} }
+    const abs = join(workdir, 'app.log')
+    writeFileSync(abs, 'nothing here\n')
+    const grep = { name: 'grep', arguments: { pattern: 'needle', path: abs }, agent, signal: new AbortController().signal }
+    const noMatch = { content: [{ type: 'text', text: 'No matches found' }] }
+    await state.pre?.(grep, next); await state.result?.(grep, noMatch)
+    await state.pre?.(grep, next); await state.result?.(grep, noMatch)
+    expect(((await state.pre?.(grep, next)) as { kind: string }).kind).toBe('deny')
+    // A FAILED edit is not progress — the file did not change, still locked.
+    await state.result?.(
+      { name: 'edit', arguments: { file_path: 'app.log', old_string: 'a', new_string: 'b' }, agent, signal: new AbortController().signal },
+      { content: [{ type: 'text', text: 'Error: edit failed: old_string was not found' }] },
+    )
+    expect(((await state.pre?.(grep, next)) as { kind: string }).kind).toBe('deny')
+    // A SUCCESSFUL write (another spelling) can have put the needle there: unlock.
+    await state.result?.(
+      { name: 'write', arguments: { file_path: './app.log', content: 'needle is here now' }, agent, signal: new AbortController().signal },
+      { content: [{ type: 'text', text: 'Wrote 19 bytes' }] },
+    )
+    expect(((await state.pre?.(grep, next)) as { kind: string }).kind).toBe('allow')
+    rmSync(workdir, { recursive: true, force: true })
+  })
+})
+
+describe('apply — config hygiene', () => {
+  it('falls back to the defaults and warns when a numeric config is not a number', async () => {
+    const workdir = mkdtempSync(join(tmpdir(), 'search-path-guard-config-'))
+    const { ctx, state } = makeContext(workdir)
+    const warnings: string[] = []
+    ;(ctx as { logger?: unknown }).logger = { warn: (msg: string) => warnings.push(msg) }
+    // Realistic config typos: a quoted number in YAML/JSON, an unbounded
+    // maxEditBytes. `Math.max(1, NaN)` is NaN (`streak >= NaN` never fires)
+    // and `size > Infinity` is never true: both would silently disable a guard.
+    apply(ctx, { zeroResultBlock: '3' as never, maxEditBytes: Number.POSITIVE_INFINITY })
+    expect(warnings.some(w => w.includes('zeroResultBlock'))).toBe(true)
+    expect(warnings.some(w => w.includes('maxEditBytes'))).toBe(true)
+    const next = () => Promise.resolve({ kind: 'allow' })
+    const agent = { session: {} }
+    const abs = join(workdir, 'app.log')
+    writeFileSync(abs, '')
+    const grep = { name: 'grep', arguments: { pattern: 'x', path: abs }, agent, signal: new AbortController().signal }
+    const noMatch = { content: [{ type: 'text', text: 'No matches found' }] }
+    // fell back to the DEFAULT 5, not the typo'd '3': the 4th call is still
+    // allowed, and the deny only arrives at the 6th (streak 5)
+    for (let i = 0; i < 4; i++) {
+      expect(((await state.pre?.(grep, next)) as { kind: string }).kind).toBe('allow')
+      await state.result?.(grep, noMatch)
+    }
+    expect(((await state.pre?.(grep, next)) as { kind: string }).kind).toBe('allow')
+    await state.result?.(grep, noMatch)
+    expect(((await state.pre?.(grep, next)) as { kind: string }).kind).toBe('deny')
+    rmSync(workdir, { recursive: true, force: true })
+  })
+})
