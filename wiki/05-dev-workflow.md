@@ -26,9 +26,9 @@ npx vitest run --config vitest.config.ts
 pwsh -NoProfile -File pack.ps1 -SkipTests   # 或 pack.cmd / bash pack.sh
 ```
 
-流程：build → （可选 vitest）→ `npm pack` → 校验 tarball（必含 `package/dist/index.js`、`package/dist/preflight.js`、两份 yml、package.json；必不含 src/tests/scripts/node_modules）→ 写 `release/SHA256SUMS.txt`。产物：`release/dsh-search-path-guard-<ver>.tgz`。
+流程：build → （可选 vitest）→ `npm pack` → 校验 tarball（必含 `package/dist/index.js`、`package/dist/preflight.js`、`package/dist/repeat-guard.js`、`package/dist/args-guard.js`、两份 yml、package.json；必不含 src/tests/scripts/node_modules）→ 写 `release/SHA256SUMS.txt`。产物：`release/dsh-search-path-guard-<ver>.tgz`。
 
-> 维护提示：pack 脚本内的 dist 校验清单是**逐项目定制**的（从 adaptive-effort-scheduler 复制骨架时改过），新增 src 模块后记得同步。
+> 维护提示：pack 脚本内的 dist 校验清单是**逐项目定制**的（从 adaptive-effort-scheduler 复制骨架时改过），新增 src 模块后记得同步。`pack.ps1` 必须保持 **UTF-8 带 BOM** 保存——`pack.cmd` 走 Windows PowerShell 5.1，无 BOM 文件按 GBK 解码，中文字符串会炸语法（pwsh 7 两种都行，BOM 是唯一双入口安全的编码）。
 
 ## 4. 安装
 
@@ -41,7 +41,7 @@ dsh plugin --profile web add release/dsh-search-path-guard-1.0.0.tgz
 
 - **必须用 tarball**：目录直装会落成 `link:` 导致运行时 `ERR_MODULE_NOT_FOUND`。
 - 替换版本：先 remove 旧包再 add 新包；替换后重启 Host。
-- 验证安装：`~/.dsh/profiles/web/node_modules/dsh-search-path-guard/dist/` 应含 `index.js` 与 `preflight.js`。
+- 验证安装：`~/.dsh/profiles/web/node_modules/dsh-search-path-guard/dist/` 应含 `index.js`、`preflight.js`、`repeat-guard.js`、`args-guard.js`。
 
 ## 5. 端到端验证方法
 

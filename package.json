@@ -1,7 +1,7 @@
 {
   "name": "dsh-search-path-guard",
-  "description": "One-line self-healing denial when grep/glob gets a nonexistent search path. / grep、glob 搜索路径不存在时给出一行式可自愈拒绝。",
-  "version": "1.3.2",
+  "description": "One-line self-healing denials: bad search paths, repeat-search loops, oversized tool-call payloads (MALFORMED_RESPONSE defense), leaked tool-call markup (PTC). / grep、glob 搜索路径不存在、重复搜索、工具参数超大（MALFORMED_RESPONSE 防线）、文本形态工具调用标记泄漏时给出一行式可自愈拒绝。",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

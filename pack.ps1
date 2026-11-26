@@ -1,4 +1,8 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
+# NOTE: keep this file saved as UTF-8 WITH BOM. pack.cmd runs it through
+# Windows PowerShell 5.1, which reads BOM-less files as ANSI/GBK — the Chinese
+# strings then mangle into syntax errors. pwsh 7 tolerates either, so BOM is
+# the only encoding that works through both entry points.
 <#
 .SYNOPSIS
   一键打包 dsh-search-path-guard，产出可 `dsh plugin add` 的 tgz。
@@ -87,7 +91,7 @@ try {
   foreach ($item in @("package/package.json", "package/cordis.patch.yml", "package/cordis.yml")) {
     if (-not ($entries -contains $item)) { throw "tarball 缺少 $item。" }
   }
-  foreach ($item in @("package/dist/index.js", "package/dist/preflight.js")) {
+  foreach ($item in @("package/dist/index.js", "package/dist/preflight.js", "package/dist/repeat-guard.js", "package/dist/args-guard.js", "package/dist/markup-guard.js")) {
     if (-not ($entries -contains $item)) { throw "tarball 缺少 $item，构建可能失败。" }
   }
   $forbidden = @($entries | Where-Object { $_ -match '^package/(src|tests|scripts|node_modules)/' })

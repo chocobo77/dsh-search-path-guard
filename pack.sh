@@ -99,7 +99,7 @@ for item in package/package.json package/cordis.patch.yml package/cordis.yml; do
     exit 1
   fi
 done
-for item in package/dist/index.js package/dist/preflight.js; do
+for item in package/dist/index.js package/dist/preflight.js package/dist/repeat-guard.js package/dist/args-guard.js package/dist/markup-guard.js; do
   if ! grep -qxF "$item" <<< "$entries"; then
     echo "tarball 缺少 $item，构建可能失败。" >&2
     exit 1
